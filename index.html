@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>كاشف الأفلام والمسلسلات والأنمي</title>
+<style>
+:root{--bg:#f6f5f2;--card:#fff;--tx:#1d1d1f;--mut:#6b6b70;--ac:#6d3df0;--bd:#e3e1dc}
+@media(prefers-color-scheme:dark){:root{--bg:#121214;--card:#1c1c20;--tx:#f2f2f4;--mut:#9a9aa3;--ac:#9a7bff;--bd:#2d2d34}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,Tahoma,sans-serif;line-height:1.6}
+main{max-width:640px;margin:0 auto;padding:20px 16px 40px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin-bottom:12px}
+input[type=url]{width:100%;padding:12px;border:1px solid var(--bd);border-radius:10px;background:var(--bg);color:var(--tx);direction:ltr}
+button{width:100%;margin-top:10px;padding:12px;border:0;border-radius:10px;background:var(--ac);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button:disabled{opacity:.5}.mut{color:var(--mut);font-size:13px}
+.row{display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-bottom:1px solid var(--bd)}
+video{width:100%;border-radius:8px;margin-top:8px}img.pv{max-width:100%;max-height:200px;border-radius:8px}
+</style></head><body><main>
+<h1>🎬 كاشف الأفلام والمسلسلات والأنمي</h1>
+<div class="card"><b>🔗 من رابط</b>
+<input type="url" id="url" placeholder="https://...">
+<button id="g1">ابحث</button></div>
+<div class="card"><b>🖼️ من لقطة</b>
+<input type="file" id="file" accept="image/*" style="margin-top:8px">
+<button id="g2">حلّل اللقطة</button></div>
+<div id="out"></div>
+<p class="mut">قد تكون النتيجة تقريبية خصوصاً للأفلام والمسلسلات الحقيقية.</p>
+<script>
+const $=i=>document.getElementById(i),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function show(d){
+  if(d.error){$("out").innerHTML=`<div class="card">⚠️ ${esc(d.error)}</div>`;return}
+  if(!d.found){$("out").innerHTML=`<div class="card">ما قدرت أتأكد من الاسم.<br><span class="mut">${esc(d.reasoning||"")}</span></div>`;return}
+  const r=[["النوع",d.type],["السنة",d.year],["الحلقة",d.episode||d.season_episode],["الدقيقة/الثانية",d.at_second!=null?d.at_second+" ث":""],["نسبة التشابه",d.similarity],["الدقة",d.confidence],["المصدر",d.source]].filter(x=>x[1]);
+  $("out").innerHTML=`<div class="card"><h2>${esc(d.title_ar||d.title)}</h2><div dir="ltr" class="mut">${esc(d.title||"")} ${esc(d.title_native||"")}</div>`+
+   r.map(x=>`<div class="row"><span class="mut">${x[0]}</span><span>${esc(x[1])}</span></div>`).join("")+
+   (d.plot?`<p>${esc(d.plot)}</p>`:"")+
+   (d.anilist&&/^https:\/\/anilist\.co\//.test(d.anilist)?`<p><a href="${esc(d.anilist)}" target="_blank" rel="noopener">AniList</a></p>`:"")+
+   (d.preview_video&&/^https:\/\//.test(d.preview_video)?`<video src="${esc(d.preview_video)}" controls muted></video>`:"")+
+   `<p class="mut">${esc(d.reasoning||"")}</p></div>`;
+}
+async function go(btn,req){btn.disabled=true;$("out").innerHTML='<div class="card">⏳ جاري التحليل… (قد ياخد حتى دقيقة)</div>';
+  try{const r=await fetch(...req);show(await r.json())}catch(e){show({error:"تعذّر الاتصال بالسيرفر"})}btn.disabled=false}
+$("g1").onclick=()=>{const u=$("url").value.trim();if(!/^https?:\/\//i.test(u))return show({error:"حط رابط صحيح"});
+  go($("g1"),["/api/link",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})}])};
+$("g2").onclick=()=>{const f=$("file").files[0];if(!f)return show({error:"اختار صورة أولاً"});
+  const fd=new FormData();fd.append("image",f);go($("g2"),["/api/image",{method:"POST",body:fd}])};
+</script></main></body></html>
