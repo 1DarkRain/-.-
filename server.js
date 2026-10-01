@@ -26,7 +26,7 @@ async function traceMoe(buf) {
   if (!r.ok) return null;
   const j = await r.json();
   const top = j.result?.[0];
-  if (!top || top.similarity < 0.87) return null; // أقل من هذا غالباً خطأ
+  if (!top || top.similarity < 0.87) return null;
   const t = top.anilist?.title || {};
   return {
     source: "trace.moe",
@@ -42,38 +42,94 @@ async function traceMoe(buf) {
   };
 }
 
-// ---------- Claude Vision (أفلام ومسلسلات) ----------
-async function claudeVision(bufs) {
-  if (!process.env.ANTHROPIC_API_KEY) return { found: false, error: "ANTHROPIC_API_KEY غير موجود" };
-  const content = bufs.map((b) => ({
-    type: "image",
-    source: { type: "base64", media_type: "image/jpeg", data: b.toString("base64") },
-  }));
-  content.push({
-    type: "text",
-    text: 'هذه لقطات من نفس المقطع. حدد العمل (فيلم/مسلسل/أنمي) من المشهد والنصوص والشخصيات، دون التعرف على أشخاص من وجوههم. أجب JSON فقط: {"found":bool,"title":"","title_ar":"","type":"","year":"","season_episode":"","plot":"","confidence":"","reasoning":""}',
+// ---------- الذكاء الاصطناعي (Gemini المجاني أو Claude) ----------
+const PROMPT = `هذه لقطات من نفس المقطع (فيلم أو مسلسل أو أنمي، أي لغة وأي بلد). حدد العمل من المشهد والأزياء والديكور والنصوص والترجمة والشعارات واللغة المنطوقة إن ظهرت. لا تتعرف على أي شخص من وجهه. إذا لم يكن هناك دليل كافٍ لا تخمّن، اجعل found=false. أجب JSON فقط بدون markdown: {"is_anime":bool,"found":bool,"title":"الاسم الأصلي بالإنجليزية","title_ar":"","type":"فيلم|مسلسل|أنمي","year":"","season_episode":"","plot":"نبذة قصيرة بدون حرق","confidence":"عالية|متوسطة|منخفضة","reasoning":"اذكر الأدلة التي اعتمدت عليها"}`;
+
+async function askGemini(bufs) {
+  const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+  const parts = bufs.map((b) => ({ inline_data: { mime_type: "image/jpeg", data: b.toString("base64") } }));
+  parts.push({ text: PROMPT });
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { responseMimeType: "application/json" } }),
   });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error?.message || "gemini error");
+  return j.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+}
+
+async function askGroq(bufs) {
+  const model = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+  const content = bufs.map((b) => ({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + b.toString("base64") } }));
+  content.push({ type: "text", text: PROMPT });
+  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: "Bearer " + process.env.GROQ_API_KEY },
+    body: JSON.stringify({ model, messages: [{ role: "user", content }], response_format: { type: "json_object" }, temperature: 0.2 }),
+  });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error?.message || "groq error");
+  return j.choices?.[0]?.message?.content || "";
+}
+
+async function askClaude(bufs) {
+  const content = bufs.map((b) => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b.toString("base64") } }));
+  content.push({ type: "text", text: PROMPT });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": process.env.ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-    },
+    headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
     body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 1000, messages: [{ role: "user", content }] }),
   });
   const j = await r.json();
-  const txt = (j.content || []).map((c) => c.text || "").join("").replace(/```json|```/g, "").trim();
-  try { return { source: "claude", ...JSON.parse(txt) }; } catch { return { found: false, raw: txt }; }
+  if (!r.ok) throw new Error(j.error?.message || "claude error");
+  return (j.content || []).map((c) => c.text || "").join("");
+}
+
+async function vision(bufs) {
+  const E = process.env;
+  const [name, ask] = E.GEMINI_API_KEY ? ["gemini", askGemini] : E.GROQ_API_KEY ? ["groq", askGroq] : E.ANTHROPIC_API_KEY ? ["claude", askClaude] : [null, null];
+  if (!ask) return null;
+  try {
+    const txt = (await ask(bufs.slice(0, 4))).replace(/```json|```/g, "").trim();
+    return { source: name, ...JSON.parse(txt) };
+  } catch (e) {
+    return { found: false, reasoning: "فشل التحليل: " + String(e.message).slice(0, 150) };
+  }
+}
+
+// ---------- TMDB (تفاصيل وصورة للأفلام والمسلسلات) اختياري ----------
+async function tmdb(d) {
+  if (!process.env.TMDB_API_KEY || !d?.title) return d;
+  try {
+    const r = await fetch(`https://api.themoviedb.org/3/search/multi?language=ar&query=${encodeURIComponent(d.title)}`, {
+      headers: { Authorization: "Bearer " + process.env.TMDB_API_KEY },
+    });
+    const m = (await r.json()).results?.find((x) => x.media_type !== "person");
+    if (!m) return d;
+    return {
+      ...d,
+      title_ar: m.title || m.name || d.title_ar,
+      year: (m.release_date || m.first_air_date || d.year || "").slice(0, 4),
+      plot: m.overview || d.plot,
+      rating: m.vote_average ? m.vote_average.toFixed(1) + " / 10" : undefined,
+      poster: m.poster_path ? "https://image.tmdb.org/t/p/w342" + m.poster_path : undefined,
+      tmdb: `https://www.themoviedb.org/${m.media_type}/${m.id}`,
+    };
+  } catch { return d; }
 }
 
 async function identify(frames) {
-  // جرّب كل لقطة على trace.moe، وإن فشل الكل استخدم Claude
-  for (const f of frames) {
-    const hit = await traceMoe(f).catch(() => null);
-    if (hit) return hit;
+  const [vis, trace] = await Promise.all([
+    vision(frames),
+    (async () => { for (const f of frames) { const h = await traceMoe(f).catch(() => null); if (h) return h; } return null; })(),
+  ]);
+  // الأنمي: قبل نتيجة trace.moe فقط إذا لم يقل الذكاء الاصطناعي إنه ليس أنمي
+  if (trace && (!vis || vis.is_anime !== false) && parseFloat(trace.similarity) >= 90) {
+    return { ...trace, plot: vis?.plot, confidence: "عالية" };
   }
-  return claudeVision(frames.slice(0, 4));
+  if (!vis) return { found: false, reasoning: "لازم تضيف GROQ_API_KEY (مجاني) أو GEMINI_API_KEY أو ANTHROPIC_API_KEY للتعرف على الأفلام والمسلسلات." };
+  return vis.found ? tmdb(vis) : vis;
 }
 
 // ---------- من رابط ----------
