@@ -92,12 +92,18 @@ async function askClaude(bufs) {
   return (j.content || []).map((c) => c.text || "").join("");
 }
 
+// يختار لقطات موزعة على المقطع (الموديل يقبل 3 صور كحد أقصى)
+function spread(arr, n) {
+  if (arr.length <= n) return arr;
+  return Array.from({ length: n }, (_, i) => arr[Math.round((i * (arr.length - 1)) / (n - 1))]);
+}
+
 async function vision(bufs) {
   const E = process.env;
   const [name, ask] = E.GEMINI_API_KEY ? ["gemini", askGemini] : E.GROQ_API_KEY ? ["groq", askGroq] : E.ANTHROPIC_API_KEY ? ["claude", askClaude] : [null, null];
   if (!ask) return null;
   try {
-    let txt = (await ask(bufs.slice(0, 4))).replace(/<think>[\s\S]*?<\/think>/g, "");
+    let txt = (await ask(spread(bufs, 3))).replace(/<think>[\s\S]*?<\/think>/g, "");
     txt = txt.slice(txt.indexOf("{"), txt.lastIndexOf("}") + 1);
     return { source: name, ...JSON.parse(txt) };
   } catch (e) {
