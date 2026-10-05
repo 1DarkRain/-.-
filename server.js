@@ -132,16 +132,61 @@ async function tmdb(d) {
   } catch { return d; }
 }
 
+// أفضل 3 نتائج من trace.moe للقطة واحدة
+async function traceTop(buf) {
+  const r = await fetch("https://api.trace.moe/search?anilistInfo&cutBorders", {
+    method: "POST",
+    headers: { "Content-Type": "image/jpeg" },
+    body: buf,
+  });
+  if (!r.ok) return [];
+  const j = await r.json();
+  return (j.result || []).slice(0, 3).map((x) => {
+    const t = x.anilist?.title || {};
+    return { id: x.anilist?.id, title: t.english || t.romaji || t.native, native: t.native,
+      episode: x.episode, from: Math.round(x.from), sim: x.similarity, video: x.video };
+  }).filter((x) => x.id);
+}
+
+// يفحص عدة لقطات ويعتمد على الاتفاق بينها (يقلل الأخطاء كثيراً)
+async function traceConsensus(frames) {
+  const picks = spread(frames, 5);
+  const votes = new Map(); // id -> {count, best, ...}
+  for (const f of picks) {
+    const top = await traceTop(f).catch(() => []);
+    const best = top[0];
+    if (!best || best.sim < 0.85) continue;
+    const v = votes.get(best.id) || { count: 0, best };
+    v.count++;
+    if (best.sim > v.best.sim) v.best = best;
+    votes.set(best.id, v);
+  }
+  const ranked = [...votes.values()].sort((a, b) => b.count - a.count || b.best.sim - a.best.sim);
+  const top = ranked[0];
+  if (!top) return null;
+  const ok = (top.count >= 2 && top.best.sim >= 0.88) || top.best.sim >= 0.95;
+  return { top, ok, others: ranked.slice(1, 3), total: picks.length };
+}
+
 async function identify(frames) {
-  const [vis, trace] = await Promise.all([
-    vision(frames),
-    (async () => { for (const f of frames) { const h = await traceMoe(f).catch(() => null); if (h) return h; } return null; })(),
-  ]);
-  // الأنمي: قبل نتيجة trace.moe فقط إذا لم يقل الذكاء الاصطناعي إنه ليس أنمي
-  if (trace && (!vis || vis.is_anime !== false) && parseFloat(trace.similarity) >= 90) {
-    return { ...trace, plot: vis?.plot, confidence: "عالية" };
+  const [vis, tc] = await Promise.all([vision(frames), traceConsensus(frames).catch(() => null)]);
+  if (tc && tc.ok && (!vis || vis.is_anime !== false)) {
+    const b = tc.top.best;
+    const alts = tc.others.map((o) => `${o.best.title} (${(o.best.sim * 100).toFixed(0)}%)`).join("، ");
+    return {
+      source: "trace.moe", found: true, type: "أنمي",
+      title: b.title, title_native: b.native, episode: b.episode, at_second: b.from,
+      similarity: (b.sim * 100).toFixed(1) + "%", preview_video: b.video,
+      anilist: `https://anilist.co/anime/${b.id}`, plot: vis?.plot,
+      confidence: tc.top.count >= 2 ? "عالية" : "متوسطة",
+      reasoning: `طابقت ${tc.top.count} من ${tc.total} لقطات.` + (alts ? ` احتمالات أخرى: ${alts}` : "") +
+        (tc.top.count < 2 ? " النتيجة من لقطة واحدة فقط، تأكد منها." : ""),
+    };
   }
   if (!vis) return { found: false, reasoning: "لازم تضيف GROQ_API_KEY (مجاني) أو GEMINI_API_KEY أو ANTHROPIC_API_KEY للتعرف على الأفلام والمسلسلات." };
+  if (tc && !tc.ok && vis.found && vis.is_anime !== false) {
+    vis.reasoning = (vis.reasoning || "") + ` (trace.moe لم يتأكد: أقرب نتيجة ${tc.top.best.title} بنسبة ${(tc.top.best.sim * 100).toFixed(0)}% فقط)`;
+  }
   return vis.found ? tmdb(vis) : vis;
 }
 
