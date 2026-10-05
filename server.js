@@ -60,17 +60,23 @@ async function askGemini(bufs) {
 }
 
 async function askGroq(bufs) {
-  const model = process.env.GROQ_MODEL || "meta-llama/llama-4-scout-17b-16e-instruct";
+  // يجرب الموديلات بالترتيب لحد ما يلاقي واحد شغال (أسماء الموديلات عند Groq بتتغير)
+  const models = [process.env.GROQ_MODEL, "qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"].filter(Boolean);
   const content = bufs.map((b) => ({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + b.toString("base64") } }));
   content.push({ type: "text", text: PROMPT });
-  const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: { "content-type": "application/json", Authorization: "Bearer " + process.env.GROQ_API_KEY },
-    body: JSON.stringify({ model, messages: [{ role: "user", content }], response_format: { type: "json_object" }, temperature: 0.2 }),
-  });
-  const j = await r.json();
-  if (!r.ok) throw new Error(j.error?.message || "groq error");
-  return j.choices?.[0]?.message?.content || "";
+  let lastErr = "groq error";
+  for (const model of models) {
+    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: "Bearer " + process.env.GROQ_API_KEY },
+      body: JSON.stringify({ model, messages: [{ role: "user", content }], max_completion_tokens: 2000, temperature: 0.2 }),
+    });
+    const j = await r.json();
+    if (r.ok) return j.choices?.[0]?.message?.content || "";
+    lastErr = `${model}: ${j.error?.message || r.status}`;
+    if (!/does not exist|not have access|decommission|not found/i.test(lastErr)) break;
+  }
+  throw new Error(lastErr);
 }
 
 async function askClaude(bufs) {
@@ -91,7 +97,8 @@ async function vision(bufs) {
   const [name, ask] = E.GEMINI_API_KEY ? ["gemini", askGemini] : E.GROQ_API_KEY ? ["groq", askGroq] : E.ANTHROPIC_API_KEY ? ["claude", askClaude] : [null, null];
   if (!ask) return null;
   try {
-    const txt = (await ask(bufs.slice(0, 4))).replace(/```json|```/g, "").trim();
+    let txt = (await ask(bufs.slice(0, 4))).replace(/<think>[\s\S]*?<\/think>/g, "");
+    txt = txt.slice(txt.indexOf("{"), txt.lastIndexOf("}") + 1);
     return { source: name, ...JSON.parse(txt) };
   } catch (e) {
     return { found: false, reasoning: "فشل التحليل: " + String(e.message).slice(0, 150) };
