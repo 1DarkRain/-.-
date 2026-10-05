@@ -20,11 +20,16 @@ const run = promisify(execFile);
 const app = express();
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 app.use(express.json());
+app.get("/tmp/:id.jpg", (req, res) => {
+  const b = tmpImages.get(req.params.id);
+  if (!b) return res.sendStatus(404);
+  res.type("image/jpeg").send(b);
+});
 app.get("/api/health", (req, res) => {
   const E = process.env;
   res.json({
     groq: !!E.GROQ_API_KEY, gemini: !!E.GEMINI_API_KEY, anthropic: !!E.ANTHROPIC_API_KEY,
-    saucenao: !!E.SAUCENAO_API_KEY, tmdb: !!E.TMDB_API_KEY,
+    saucenao: !!E.SAUCENAO_API_KEY, serpapi: !!E.SERPAPI_KEY, tmdb: !!E.TMDB_API_KEY,
     // أسماء المتغيرات التي تحتوي KEY/API فقط (بدون القيم)
     key_like_names: Object.keys(E).filter((k) => /KEY|API|TOKEN/i.test(k)),
   });
@@ -60,10 +65,10 @@ async function traceMoe(buf) {
 // ---------- الذكاء الاصطناعي (Gemini المجاني أو Claude) ----------
 const PROMPT = `هذه لقطات من نفس المقطع (فيلم أو مسلسل أو أنمي، أي لغة وأي بلد). حدد العمل من المشهد والأزياء والديكور والنصوص والترجمة والشعارات واللغة المنطوقة إن ظهرت. لا تتعرف على أي شخص من وجهه. إذا لم يكن هناك دليل كافٍ لا تخمّن، اجعل found=false. لا تحدد اسم أنمي من شكل شخصية فقط؛ الخطأ أسوأ من عدم الإجابة. اجعل confidence "عالية" فقط إذا كنت متأكداً فعلاً. أجب JSON فقط بدون markdown: {"is_anime":bool,"found":bool,"title":"الاسم الأصلي بالإنجليزية","title_ar":"","type":"فيلم|مسلسل|أنمي","year":"","season_episode":"","plot":"نبذة قصيرة بدون حرق","confidence":"عالية|متوسطة|منخفضة","reasoning":"اذكر الأدلة التي اعتمدت عليها"}`;
 
-async function askGemini(bufs) {
+async function askGemini(bufs, prompt) {
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const parts = bufs.map((b) => ({ inline_data: { mime_type: "image/jpeg", data: b.toString("base64") } }));
-  parts.push({ text: PROMPT });
+  parts.push({ text: prompt });
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": process.env.GEMINI_API_KEY },
@@ -74,11 +79,11 @@ async function askGemini(bufs) {
   return j.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
 }
 
-async function askGroq(bufs) {
+async function askGroq(bufs, prompt) {
   // يجرب الموديلات بالترتيب لحد ما يلاقي واحد شغال (أسماء الموديلات عند Groq بتتغير)
   const models = [process.env.GROQ_MODEL, "qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"].filter(Boolean);
   const content = bufs.map((b) => ({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + b.toString("base64") } }));
-  content.push({ type: "text", text: PROMPT });
+  content.push({ type: "text", text: prompt });
   let lastErr = "groq error";
   for (const model of models) {
     const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -94,9 +99,9 @@ async function askGroq(bufs) {
   throw new Error(lastErr);
 }
 
-async function askClaude(bufs) {
+async function askClaude(bufs, prompt) {
   const content = bufs.map((b) => ({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: b.toString("base64") } }));
-  content.push({ type: "text", text: PROMPT });
+  content.push({ type: "text", text: prompt });
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "content-type": "application/json", "x-api-key": process.env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01" },
@@ -107,18 +112,42 @@ async function askClaude(bufs) {
   return (j.content || []).map((c) => c.text || "").join("");
 }
 
+function buildPrompt(lensTitles) {
+  if (!lensTitles || !lensTitles.length) return PROMPT;
+  return PROMPT + "\n\nنتائج بحث Google Lens عن نفس الصورة (عناوين صفحات مشابهة، قد تحتوي أخطاء):\n- " +
+    lensTitles.join("\n- ") + "\nاستخدمها كدليل رئيسي لتحديد العمل. إذا اتفقت عدة نتائج على عمل واحد فاعتمده واجعل confidence عالية.";
+}
+
+// ---------- Google Lens عبر SerpApi (يحتاج رابط عام للصورة) ----------
+const tmpImages = new Map();
+async function lens(buf, baseUrl) {
+  if (!process.env.SERPAPI_KEY || !baseUrl) return null;
+  const id = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  tmpImages.set(id, buf);
+  setTimeout(() => tmpImages.delete(id), 5 * 60 * 1000);
+  try {
+    const u = `https://serpapi.com/search.json?engine=google_lens&url=${encodeURIComponent(baseUrl + "/tmp/" + id + ".jpg")}&api_key=${process.env.SERPAPI_KEY}`;
+    const j = await (await fetch(u)).json();
+    const titles = [
+      ...(j.knowledge_graph || []).map((k) => k.title),
+      ...(j.visual_matches || []).slice(0, 10).map((m) => m.title),
+    ].filter(Boolean).map((t) => String(t).slice(0, 120));
+    return titles.length ? titles : null;
+  } catch { return null; }
+}
+
 // يختار لقطات موزعة على المقطع (الموديل يقبل 3 صور كحد أقصى)
 function spread(arr, n) {
   if (arr.length <= n) return arr;
   return Array.from({ length: n }, (_, i) => arr[Math.round((i * (arr.length - 1)) / (n - 1))]);
 }
 
-async function vision(bufs) {
+async function vision(bufs, lensTitles) {
   const E = process.env;
   const [name, ask] = E.GEMINI_API_KEY ? ["gemini", askGemini] : E.GROQ_API_KEY ? ["groq", askGroq] : E.ANTHROPIC_API_KEY ? ["claude", askClaude] : [null, null];
   if (!ask) return null;
   try {
-    let txt = (await ask(spread(bufs, 3))).replace(/<think>[\s\S]*?<\/think>/g, "");
+    let txt = (await ask(spread(bufs, 3), buildPrompt(lensTitles))).replace(/<think>[\s\S]*?<\/think>/g, "");
     txt = txt.slice(txt.indexOf("{"), txt.lastIndexOf("}") + 1);
     return { source: name, ...JSON.parse(txt) };
   } catch (e) {
@@ -202,8 +231,13 @@ async function saucenao(buf) {
   } catch { return null; }
 }
 
-async function identify(frames) {
-  const [vis, tc, sauce] = await Promise.all([vision(frames), traceConsensus(frames).catch(() => null), frames.length === 1 ? saucenao(frames[0]) : null]);
+async function identify(frames, baseUrl) {
+  const [tc, sauce, lensT] = await Promise.all([
+    traceConsensus(frames).catch(() => null),
+    frames.length === 1 ? saucenao(frames[0]) : null,
+    lens(frames[Math.floor(frames.length / 2)], baseUrl),
+  ]);
+  const vis = await vision(frames, lensT);
   if (tc && tc.ok && (!vis || vis.is_anime !== false)) {
     const b = tc.top.best;
     const alts = tc.others.map((o) => `${o.best.title} (${(o.best.sim * 100).toFixed(0)}%)`).join("، ");
@@ -252,7 +286,7 @@ app.post("/api/link", async (req, res) => {
       "-frames:v", "8", path.join(dir, "f%02d.jpg")], { timeout: 60000 });
     const names = (await readdir(dir)).filter((f) => f.startsWith("f")).sort();
     const frames = await Promise.all(names.map((n) => readFile(path.join(dir, n))));
-    res.json(await identify(frames));
+    res.json(await identify(frames, `https://${req.get("host")}`));
   } catch (e) {
     res.status(500).json({ error: "تعذّر معالجة الرابط (قد يكون محمي أو خاص)", detail: String(e.message).slice(0, 200) });
   } finally {
@@ -263,7 +297,7 @@ app.post("/api/link", async (req, res) => {
 // ---------- من صورة ----------
 app.post("/api/image", upload.single("image"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "لا توجد صورة" });
-  res.json(await identify([req.file.buffer]));
+  res.json(await identify([req.file.buffer], `https://${req.get("host")}`));
 });
 
 app.listen(process.env.PORT || 3000, () => console.log("جاهز على http://localhost:3000"));
