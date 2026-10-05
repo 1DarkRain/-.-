@@ -43,7 +43,7 @@ async function traceMoe(buf) {
 }
 
 // ---------- الذكاء الاصطناعي (Gemini المجاني أو Claude) ----------
-const PROMPT = `هذه لقطات من نفس المقطع (فيلم أو مسلسل أو أنمي، أي لغة وأي بلد). حدد العمل من المشهد والأزياء والديكور والنصوص والترجمة والشعارات واللغة المنطوقة إن ظهرت. لا تتعرف على أي شخص من وجهه. إذا لم يكن هناك دليل كافٍ لا تخمّن، اجعل found=false. أجب JSON فقط بدون markdown: {"is_anime":bool,"found":bool,"title":"الاسم الأصلي بالإنجليزية","title_ar":"","type":"فيلم|مسلسل|أنمي","year":"","season_episode":"","plot":"نبذة قصيرة بدون حرق","confidence":"عالية|متوسطة|منخفضة","reasoning":"اذكر الأدلة التي اعتمدت عليها"}`;
+const PROMPT = `هذه لقطات من نفس المقطع (فيلم أو مسلسل أو أنمي، أي لغة وأي بلد). حدد العمل من المشهد والأزياء والديكور والنصوص والترجمة والشعارات واللغة المنطوقة إن ظهرت. لا تتعرف على أي شخص من وجهه. إذا لم يكن هناك دليل كافٍ لا تخمّن، اجعل found=false. لا تحدد اسم أنمي من شكل شخصية فقط؛ الخطأ أسوأ من عدم الإجابة. اجعل confidence "عالية" فقط إذا كنت متأكداً فعلاً. أجب JSON فقط بدون markdown: {"is_anime":bool,"found":bool,"title":"الاسم الأصلي بالإنجليزية","title_ar":"","type":"فيلم|مسلسل|أنمي","year":"","season_episode":"","plot":"نبذة قصيرة بدون حرق","confidence":"عالية|متوسطة|منخفضة","reasoning":"اذكر الأدلة التي اعتمدت عليها"}`;
 
 async function askGemini(bufs) {
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
@@ -168,8 +168,27 @@ async function traceConsensus(frames) {
   return { top, ok, others: ranked.slice(1, 3), total: picks.length };
 }
 
+// SauceNAO: بحث عكسي للصور (شخصيات، بوسترات، فان آرت، مانغا) - مفتاح مجاني
+async function saucenao(buf) {
+  if (!process.env.SAUCENAO_API_KEY) return null;
+  try {
+    const fd = new FormData();
+    fd.append("file", new Blob([buf], { type: "image/jpeg" }), "q.jpg");
+    const r = await fetch(`https://saucenao.com/search.php?output_type=2&numres=5&db=999&api_key=${process.env.SAUCENAO_API_KEY}`, { method: "POST", body: fd });
+    const j = await r.json();
+    const top = (j.results || []).sort((a, b) => parseFloat(b.header.similarity) - parseFloat(a.header.similarity))[0];
+    if (!top) return null;
+    const sim = parseFloat(top.header.similarity);
+    if (sim < 85) return null;
+    const d = top.data || {};
+    const title = d.source || d.material || d.title;
+    if (!title) return null;
+    return { sim, title, characters: d.characters, part: d.part, year: d.year, est_time: d.est_time, db: top.header.index_name };
+  } catch { return null; }
+}
+
 async function identify(frames) {
-  const [vis, tc] = await Promise.all([vision(frames), traceConsensus(frames).catch(() => null)]);
+  const [vis, tc, sauce] = await Promise.all([vision(frames), traceConsensus(frames).catch(() => null), frames.length === 1 ? saucenao(frames[0]) : null]);
   if (tc && tc.ok && (!vis || vis.is_anime !== false)) {
     const b = tc.top.best;
     const alts = tc.others.map((o) => `${o.best.title} (${(o.best.sim * 100).toFixed(0)}%)`).join("، ");
@@ -183,10 +202,23 @@ async function identify(frames) {
         (tc.top.count < 2 ? " النتيجة من لقطة واحدة فقط، تأكد منها." : ""),
     };
   }
+  if (sauce) {
+    return {
+      source: "saucenao", found: true, type: "أنمي/مانغا/عمل فني",
+      title: String(sauce.title).slice(0, 200), episode: sauce.part, year: sauce.year,
+      similarity: sauce.sim.toFixed(1) + "%", confidence: sauce.sim >= 92 ? "عالية" : "متوسطة",
+      plot: sauce.characters ? "الشخصيات: " + sauce.characters : vis?.plot,
+      reasoning: "نتيجة بحث عكسي (SauceNAO) من قاعدة: " + sauce.db,
+    };
+  }
   if (!vis) return { found: false, reasoning: "لازم تضيف GROQ_API_KEY (مجاني) أو GEMINI_API_KEY أو ANTHROPIC_API_KEY للتعرف على الأفلام والمسلسلات." };
   if (tc && !tc.ok && vis.found && vis.is_anime !== false) {
     vis.reasoning = (vis.reasoning || "") + ` (trace.moe لم يتأكد: أقرب نتيجة ${tc.top.best.title} بنسبة ${(tc.top.best.sim * 100).toFixed(0)}% فقط)`;
   }
+  if (vis.found && vis.confidence === "منخفضة") {
+    return { found: false, reasoning: `غير متأكد. أقرب تخمين: ${vis.title} (${vis.type || ""}). ${vis.reasoning || ""}` };
+  }
+  if (vis.found && vis.confidence === "متوسطة") vis.reasoning = "⚠️ تخمين متوسط الثقة، تأكد منه. " + (vis.reasoning || "");
   return vis.found ? tmdb(vis) : vis;
 }
 
