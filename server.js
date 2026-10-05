@@ -10,10 +10,25 @@ import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
+// يقبل أسماء المتغيرات بأي حالة أحرف (مثلاً Groq_Api_Key) ويحولها للأحرف الكبيرة
+for (const k of Object.keys(process.env)) {
+  const up = k.toUpperCase();
+  if (up !== k && !process.env[up]) process.env[up] = process.env[k];
+}
+
 const run = promisify(execFile);
 const app = express();
 const upload = multer({ limits: { fileSize: 10 * 1024 * 1024 } });
 app.use(express.json());
+app.get("/api/health", (req, res) => {
+  const E = process.env;
+  res.json({
+    groq: !!E.GROQ_API_KEY, gemini: !!E.GEMINI_API_KEY, anthropic: !!E.ANTHROPIC_API_KEY,
+    saucenao: !!E.SAUCENAO_API_KEY, tmdb: !!E.TMDB_API_KEY,
+    // أسماء المتغيرات التي تحتوي KEY/API فقط (بدون القيم)
+    key_like_names: Object.keys(E).filter((k) => /KEY|API|TOKEN/i.test(k)),
+  });
+});
 app.use(express.static("public")); // ضع index.html (واجهة الموقع) داخل مجلد public
 
 // ---------- trace.moe (أنمي) ----------
