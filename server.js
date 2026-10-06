@@ -34,6 +34,8 @@ app.get("/api/health", (req, res) => {
     key_like_names: Object.keys(E).filter((k) => /KEY|API|TOKEN/i.test(k)),
   });
 });
+app.get("/robots.txt", (req, res) => res.type("text/plain").send(`User-agent: *\nAllow: /\nSitemap: https://${req.get("host")}/sitemap.xml\n`));
+app.get("/sitemap.xml", (req, res) => res.type("application/xml").send(`<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://${req.get("host")}/</loc></url></urlset>`));
 app.use(express.static("public")); // ضع index.html (واجهة الموقع) داخل مجلد public
 
 // ---------- trace.moe (أنمي) ----------
