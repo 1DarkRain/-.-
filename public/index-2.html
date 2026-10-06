@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>كاشف الأعمال | Find any movie, series or anime from a clip</title>
+<meta name="description" content="Identify any movie, TV series or anime from a video link or a screenshot. اعرف اسم أي فيلم أو مسلسل أو أنمي من رابط أو لقطة.">
+<meta property="og:type" content="website"><meta property="og:title" content="كاشف الأعمال - Movie, Series & Anime Finder">
+<meta property="og:description" content="Paste a video link or upload a screenshot and get the title, episode and details.">
+<meta name="theme-color" content="#0B0B14">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"كاشف الأعمال","applicationCategory":"EntertainmentApplication","operatingSystem":"Any","description":"Identify movies, series and anime from a link or screenshot."}</script>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0B0B14;--card:#15151F;--card2:#1C1C2A;--bd:#2A2A3C;--tx:#F4F4F8;--mut:#9A9AB0;--ac:#8B7CFF;--movie:#FFB547;--series:#2DD4BF;--anime:#FF5C8A}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font-family:Cairo,system-ui,Tahoma,sans-serif;line-height:1.6}
+main{max-width:720px;margin:0 auto;padding:0 18px 56px;position:relative;overflow:hidden}
+.deco{position:absolute;top:-18px;left:-34px;width:200px;height:190px;pointer-events:none}
+.deco i{position:absolute;width:92px;height:130px;border-radius:12px;opacity:.9}
+.hero{position:relative;padding:54px 0 22px;max-width:260px}
+.hero small{color:#B3A9FF;font-weight:600;font-size:13px}
+h1{margin:2px 0 4px;font-size:32px;line-height:1.2;font-weight:800}
+.hero p{margin:0;color:var(--mut);font-size:14px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:20px;padding:14px;margin-bottom:22px}
+.tabs{display:flex;gap:6px;background:var(--bg);border-radius:12px;padding:4px;margin-bottom:12px}
+.tabs button{flex:1;min-height:42px;border:0;border-radius:9px;background:transparent;color:#C9C9DA;font:600 15px Cairo,sans-serif;cursor:pointer}
+.tabs button.on{background:var(--ac);color:#0B0B14;font-weight:800}
+input[type=url]{width:100%;min-height:48px;border-radius:12px;border:1px solid #363650;background:var(--bg);color:var(--tx);padding:0 14px;font-size:15px;direction:ltr}
+.go{width:100%;min-height:50px;margin-top:10px;border:0;border-radius:12px;background:var(--ac);color:#0B0B14;font:800 16px Cairo,sans-serif;cursor:pointer}
+.go:disabled{opacity:.5}
+.drop{display:block;border:2px dashed #363650;border-radius:14px;padding:22px;text-align:center;color:var(--mut);cursor:pointer}
+.drop img{max-width:100%;max-height:200px;border-radius:10px}
+.hide{display:none}
+#out .card{display:flex;flex-direction:column;gap:12px}
+.rs{display:flex;gap:14px}.rs .info{display:flex;flex-direction:column;gap:4px;min-width:0}
+.badge{align-self:flex-start;border-radius:99px;padding:2px 12px;font-size:12px;font-weight:700;color:#0B0B14}
+.rs h2{margin:0;font-size:22px;line-height:1.25}.mut{color:var(--mut);font-size:13px}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid var(--bd);font-size:14px}.kv span:first-child{color:var(--mut)}
+.ph{display:flex;align-items:center;justify-content:center;border-radius:12px;font-size:38px;font-weight:800;color:rgba(11,11,20,.55);flex:none}
+.sh{display:flex;align-items:center;gap:10px;margin:26px 0 12px}.sh i{width:6px;height:24px;border-radius:3px}
+.sh h2{margin:0;font-size:20px;font-weight:800;flex:1}.sh span{color:var(--mut);font-size:13px}
+.sh.top{margin-top:8px}.sh .clr{background:none;border:1px solid var(--bd);color:var(--mut);border-radius:99px;padding:3px 12px;font:600 12px Cairo,sans-serif;cursor:pointer;direction:ltr}
+#recent{display:flex;flex-direction:column;gap:8px}
+.rc{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:12px 14px;color:var(--tx);cursor:pointer;text-align:left;direction:ltr;font-family:Cairo,sans-serif}
+.rc .dot{width:10px;height:10px;border-radius:50%;flex:none}.rc .rt{display:flex;flex-direction:column;min-width:0}.rc b{font-size:15px}.rc small{color:var(--mut)}
+.row{display:flex;gap:12px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory;scrollbar-width:none}.row::-webkit-scrollbar{display:none}
+.pc{flex:none;width:104px;background:none;border:0;color:var(--tx);cursor:pointer;text-align:left;direction:ltr;scroll-snap-align:start;font-family:Cairo,sans-serif;padding:0;display:flex;flex-direction:column;gap:3px}
+.pc b{font-size:13px;line-height:1.3}.pc small{color:var(--mut);font-size:11px}
+.empty{color:var(--mut);font-size:13px;direction:ltr;text-align:left;margin:0;background:var(--card);border:1px dashed var(--bd);border-radius:14px;padding:14px}
+a{color:var(--ac)}footer{color:var(--mut);font-size:12px;text-align:center;margin-top:34px}
+</style></head><body><main>
+<div class="deco" aria-hidden="true"><i style="left:46px;top:30px;background:var(--anime);transform:rotate(-14deg)"></i><i style="left:84px;top:10px;background:var(--series);transform:rotate(6deg)"></i><i style="left:30px;top:-6px;background:var(--movie);transform:rotate(-30deg)"></i></div>
+<div class="hero"><small>كاشف الأعمال</small><h1>شو اسم هالعمل؟</h1><p>حط رابط أو لقطة ونطلعلك الاسم والتفاصيل</p></div>
+<div class="card">
+<div class="tabs"><button id="t1" class="on">رابط</button><button id="t2">لقطة</button></div>
+<div id="p1"><input type="url" id="url" placeholder="https://..." aria-label="video link"><button class="go" id="g1">ابحث</button></div>
+<div id="p2" class="hide"><label class="drop"><span id="dtxt">اضغط لاختيار صورة أو لقطة شاشة</span><input type="file" id="file" accept="image/*" hidden></label><button class="go" id="g2">حلّل اللقطة</button></div>
+</div>
+<div id="out"></div>
+<div class="sh top"><i style="background:var(--ac)"></i><h2 style="direction:ltr;text-align:left">Recent searches</h2><button class="clr" id="clr">Clear</button></div>
+<div id="recent"></div>
+<div id="lists"></div>
+<footer>النتائج قد تكون تقريبية، تأكد من المصدر · Results may be approximate</footer>
+</main>
+<script>
+const $=i=>document.getElementById(i),esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const KEY="finder_hist_v1",COL={movie:"#FFB547",series:"#2DD4BF",anime:"#FF5C8A"},NAME={movie:"Movies",series:"Series",anime:"Anime"};
+const load=()=>{try{return JSON.parse(localStorage.getItem(KEY))||[]}catch(e){return[]}};
+const save=a=>{try{localStorage.setItem(KEY,JSON.stringify(a.slice(0,30)))}catch(e){}};
+const cat=d=>{const t=d.type||"";return t.includes("أنمي")?"anime":t.includes("مسلسل")?"series":"movie"};
+function ago(t){const s=(Date.now()-t)/1000;if(s<60)return"just now";const m=s/60;if(m<60)return Math.floor(m)+" min ago";const h=m/60;if(h<24)return Math.floor(h)+" h ago";return Math.floor(h/24)+" d ago"}
+function poster(d,w,h){if(d.poster&&/^https:\/\/image\.tmdb\.org\//.test(d.poster))return`<img src="${esc(d.poster)}" alt="" style="width:${w}px;height:${h}px;object-fit:cover;border-radius:12px;flex:none">`;
+ return`<div class="ph" style="width:${w}px;height:${h}px;background:${COL[cat(d)]}">${esc((d.title||"?").trim()[0]||"?").toUpperCase()}</div>`}
+function lists(){const h=load();
+ $("recent").innerHTML=h.length?h.slice(0,6).map((x,i)=>`<button class="rc" data-i="${i}"><span class="dot" style="background:${COL[cat(x.d)]}"></span><span class="rt"><b>${esc(x.d.title)}</b><small>Searched ${ago(x.t)} · ${NAME[cat(x.d)]}</small></span></button>`).join(""):'<p class="empty">No searches yet. Your recent searches will appear here.</p>';
+ $("lists").innerHTML=["movie","series","anime"].map(c=>{const it=h.filter(x=>cat(x.d)===c);
+  return`<section><div class="sh"><i style="background:${COL[c]}"></i><h2 style="direction:ltr;text-align:left">${NAME[c]}</h2><span>${it.length}</span></div>`+(it.length?`<div class="row">${it.map(x=>`<button class="pc" data-t="${x.t}">${poster(x.d,104,150)}<b>${esc(x.d.title)}</b><small>Searched ${ago(x.t)}</small></button>`).join("")}</div>`:`<p class="empty">Nothing here yet. Your ${NAME[c]} finds will appear here.</p>`)+"</section>"}).join("")}
+function show(d,old){
+ if(d.error){$("out").innerHTML=`<div class="card">⚠ ${esc(d.error)}</div>`;return}
+ if(!d.found){$("out").innerHTML=`<div class="card"><h2 style="margin:0">ما قدرت أتأكد من الاسم</h2><div class="mut">${esc(d.reasoning||"")}</div></div>`;return}
+ const c=COL[cat(d)],r=[["التقييم",d.rating],["النوع",d.type],["السنة",d.year],["الحلقة",d.episode||d.season_episode],["الثانية",d.at_second!=null?d.at_second+" s":""],["التشابه",d.similarity],["المصدر",d.source]].filter(x=>x[1]);
+ $("out").innerHTML=`<div class="card"><div class="rs">${poster(d,96,140)}<div class="info"><span class="badge" style="background:${c}">${esc(d.confidence||"")}</span><h2>${esc(d.title_ar||d.title)}</h2><div class="mut" dir="ltr">${esc(d.title||"")} ${esc(d.title_native||"")}</div></div></div>`+
+  r.map(x=>`<div class="kv"><span>${x[0]}</span><span>${esc(x[1])}</span></div>`).join("")+(d.plot?`<p style="margin:0">${esc(d.plot)}</p>`:"")+
+  (d.anilist&&/^https:\/\/anilist\.co\//.test(d.anilist)?`<a href="${esc(d.anilist)}" target="_blank" rel="noopener">AniList</a>`:"")+
+  (d.tmdb&&/^https:\/\/www\.themoviedb\.org\//.test(d.tmdb)?`<a href="${esc(d.tmdb)}" target="_blank" rel="noopener">TMDB</a>`:"")+
+  (d.preview_video&&/^https:\/\//.test(d.preview_video)?`<video src="${esc(d.preview_video)}" controls muted style="width:100%;border-radius:12px"></video>`:"")+
+  (d.reasoning?`<div class="mut">${esc(d.reasoning)}</div>`:"")+`</div>`;
+ if(!old){const h=load().filter(x=>(x.d.title||"").toLowerCase()!==(d.title||"").toLowerCase());h.unshift({t:Date.now(),d});save(h);lists()}
+ $("out").scrollIntoView({behavior:"smooth",block:"start"});
+}
+async function go(btn,req){btn.disabled=true;$("out").innerHTML='<div class="card">⏳ جاري التحليل… (قد ياخد حتى دقيقة)</div>';
+ try{show(await (await fetch(...req)).json())}catch(e){show({error:"تعذّر الاتصال بالسيرفر"})}btn.disabled=false}
+$("g1").onclick=()=>{const u=$("url").value.trim();if(!/^https?:\/\//i.test(u))return show({error:"حط رابط صحيح يبدأ بـ http"});
+ go($("g1"),["/api/link",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({url:u})}])};
+$("g2").onclick=()=>{const f=$("file").files[0];if(!f)return show({error:"اختار صورة أولاً"});const fd=new FormData();fd.append("image",f);go($("g2"),["/api/image",{method:"POST",body:fd}])};
+$("file").onchange=e=>{const f=e.target.files[0];if(f)$("dtxt").textContent=f.name};
+function tab(n){$("p1").classList.toggle("hide",n!=1);$("p2").classList.toggle("hide",n!=2);$("t1").classList.toggle("on",n==1);$("t2").classList.toggle("on",n==2)}
+$("t1").onclick=()=>tab(1);$("t2").onclick=()=>tab(2);
+$("clr").onclick=()=>{save([]);lists()};
+document.addEventListener("click",e=>{const b=e.target.closest(".rc,.pc");if(!b)return;const h=load();
+ const x=b.dataset.i!=null?h[+b.dataset.i]:h.find(y=>String(y.t)===b.dataset.t);if(x)show(x.d,true)});
+lists();setInterval(lists,60000);
+</script></body></html>
