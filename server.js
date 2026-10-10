@@ -82,21 +82,26 @@ async function askGemini(bufs, prompt) {
 }
 
 async function askGroq(bufs, prompt) {
-  // يجرب الموديلات بالترتيب لحد ما يلاقي واحد شغال (أسماء الموديلات عند Groq بتتغير)
+  // يجرب الموديلات بالترتيب، ولكل موديل يقلل الصور والمخرجات إذا كان الطلب كبيراً على الخطة المجانية
   const models = [process.env.GROQ_MODEL, "qwen/qwen3.8-27b", "qwen/qwen3.6-27b", "meta-llama/llama-4-scout-17b-16e-instruct"].filter(Boolean);
-  const content = bufs.map((b) => ({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + b.toString("base64") } }));
-  content.push({ type: "text", text: prompt });
+  const attempts = [{ imgs: bufs.length, max: 1200 }, { imgs: 1, max: 800 }];
+  const soft = /does not exist|not have access|decommission|not found|too large|rate limit|tokens per|TPM|reduce/i;
   let lastErr = "groq error";
   for (const model of models) {
-    const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json", Authorization: "Bearer " + process.env.GROQ_API_KEY },
-      body: JSON.stringify({ model, messages: [{ role: "user", content }], max_completion_tokens: 2000, temperature: 0.2 }),
-    });
-    const j = await r.json();
-    if (r.ok) return j.choices?.[0]?.message?.content || "";
-    lastErr = `${model}: ${j.error?.message || r.status}`;
-    if (!/does not exist|not have access|decommission|not found/i.test(lastErr)) break;
+    for (const at of attempts) {
+      const use = bufs.length > at.imgs ? [bufs[Math.floor(bufs.length / 2)]] : bufs;
+      const content = use.map((b) => ({ type: "image_url", image_url: { url: "data:image/jpeg;base64," + b.toString("base64") } }));
+      content.push({ type: "text", text: prompt });
+      const r = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json", Authorization: "Bearer " + process.env.GROQ_API_KEY },
+        body: JSON.stringify({ model, messages: [{ role: "user", content }], max_completion_tokens: at.max, temperature: 0.2 }),
+      });
+      const j = await r.json();
+      if (r.ok) return j.choices?.[0]?.message?.content || "";
+      lastErr = `${model}: ${j.error?.message || r.status}`;
+      if (!soft.test(lastErr)) throw new Error(lastErr);
+    }
   }
   throw new Error(lastErr);
 }
